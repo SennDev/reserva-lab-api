@@ -9,6 +9,8 @@ from apps.users.managers import UserManager
 class User(AbstractUser):
     TIPO_CHOICES = (
         ("estudiante", "Estudiante"),
+        ("tecnico", "Técnico"),
+        ("admin", "Administrador"),
         ("personal", "Personal"),
     )
     ROL_CHOICES = (
@@ -39,10 +41,15 @@ class User(AbstractUser):
         return f"{self.first_name} {self.last_name}".strip()
 
     def save(self, *args, **kwargs):
-        if self.rol in {"admin", "tecnico"}:
+        if self.rol == "admin":
             self.is_staff = True
-        elif not self.is_superuser:
+            self.is_superuser = True
+        elif self.rol == "tecnico":
+            self.is_staff = True
+            self.is_superuser = False
+        else:
             self.is_staff = False
+            self.is_superuser = False
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:

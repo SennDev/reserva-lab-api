@@ -19,8 +19,17 @@ def split_csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+
+    if value is None:
+        return default
+
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-reservalab-change-me")
-DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
+DEBUG = env_bool("DJANGO_DEBUG", True)
 ALLOWED_HOSTS = split_csv(os.getenv("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost"))
 
 
@@ -45,6 +54,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -154,5 +164,12 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 APPEND_SLASH = True
+
+SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", not DEBUG)
+CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", not DEBUG)
+SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", False)
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from apps.common.constants import HORARIOS_VALIDOS, PRESTAMO_ESTADOS_ACTIVOS
 from apps.common.identifiers import generate_prefixed_code
+from apps.common.time_slots import time_slots_overlap
 from apps.equipment.models import Equipo
 
 
@@ -59,6 +60,16 @@ class Prestamo(models.Model):
 
         if int(self.cantidad or 0) > int(self.equipo.cantidad_total or 0):
             errors["cantidad"] = "La cantidad solicitada no puede superar el inventario total."
+
+        approved_loans = Prestamo.objects.filter(
+            equipo=self.equipo,
+            fecha=self.fecha,
+            estado="Aprobado",
+        ).exclude(pk=self.pk)
+
+        conflict_exists = any(time_slots_overlap(self.horario, loan.horario) for loan in approved_loans)
+        if conflict_exists and self.estado in PRESTAMO_ESTADOS_ACTIVOS:
+            errors["horario"] = "Este horario ya está reservado para el equipo seleccionado."
 
         if errors:
             raise ValidationError(errors)

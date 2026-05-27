@@ -76,7 +76,7 @@ class ReservationApiTests(APITestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]["solicitante"], self.student.nombre_completo)
 
-    def test_conflicting_reservation_is_rejected(self):
+    def test_pending_reservations_can_overlap_before_approval(self):
         Reserva.objects.create(
             laboratorio=self.lab,
             solicitante=self.student,
@@ -97,6 +97,62 @@ class ReservationApiTests(APITestCase):
                 "materia": "Arquitectura",
                 "motivo": "Nueva solicitud que choca con una reserva existente.",
             },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["estado"], "Pendiente")
+
+    def test_approved_reservation_overlap_is_rejected(self):
+        Reserva.objects.create(
+            laboratorio=self.lab,
+            solicitante=self.student,
+            fecha=self.future_date,
+            horario="13:00 - 15:00",
+            materia="Desarrollo Web",
+            motivo="Uso del laboratorio para práctica integradora.",
+            estado="Aprobada",
+        )
+
+        self.client.force_authenticate(self.student_two)
+        response = self.client.post(
+            "/api/reservas/",
+            {
+                "laboratorioId": self.lab.id,
+                "fecha": self.future_date.isoformat(),
+                "horario": "13:00 - 15:00",
+                "materia": "Arquitectura",
+                "motivo": "Nueva solicitud que choca con una reserva aprobada.",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("horario", response.data)
+
+    def test_approving_overlapping_reservation_is_rejected(self):
+        pending_reservation = Reserva.objects.create(
+            laboratorio=self.lab,
+            solicitante=self.student_two,
+            fecha=self.future_date,
+            horario="09:00 - 11:00",
+            materia="Arquitectura",
+            motivo="Solicitud pendiente con horario empalmado.",
+        )
+        Reserva.objects.create(
+            laboratorio=self.lab,
+            solicitante=self.student,
+            fecha=self.future_date,
+            horario="09:00 - 11:00",
+            materia="Redes",
+            motivo="Reserva aprobada previamente para validar empalmes.",
+            estado="Aprobada",
+        )
+
+        self.client.force_authenticate(self.tecnico)
+        response = self.client.patch(
+            f"/api/reservas/{pending_reservation.id}/estado/",
+            {"estado": "Aprobada"},
             format="json",
         )
 

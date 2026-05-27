@@ -22,6 +22,16 @@ class LoanApiTests(APITestCase):
             tipo_usuario="estudiante",
             rol="estudiante",
         )
+        self.student_two = User.objects.create_user(
+            email="student2@alumno.buap.mx",
+            password="Student123",
+            first_name="Laura",
+            last_name="Perez",
+            matricula="202300011",
+            carrera_departamento="Ciencias de la Computación",
+            tipo_usuario="estudiante",
+            rol="estudiante",
+        )
         self.tecnico = User.objects.create_user(
             email="tecnico@reservalab.local",
             password="Tecnico1234",
@@ -74,5 +84,67 @@ class LoanApiTests(APITestCase):
         self.assertEqual(self.loan.estado, "Aprobado")
         self.assertEqual(self.equipment.cantidad_disponible, 1)
         self.assertEqual(self.equipment.estado, "En Préstamo")
+
+    def test_approved_loan_overlap_is_rejected_on_create(self):
+        loan_date = timezone.localdate() + timedelta(days=2)
+        Prestamo.objects.create(
+            equipo=self.equipment,
+            solicitante=self.student_two,
+            fecha=loan_date,
+            horario="13:00 - 15:00",
+            proyecto="Robótica",
+            motivo="Préstamo aprobado previamente para validar empalmes.",
+            cantidad=1,
+            estado="Aprobado",
+        )
+
+        self.client.force_authenticate(self.student)
+        response = self.client.post(
+            "/api/prestamos/",
+            {
+                "equipoId": self.equipment.id,
+                "fecha": loan_date.isoformat(),
+                "horario": "13:00 - 15:00",
+                "proyecto": "Electrónica",
+                "motivo": "Nueva solicitud que choca con un préstamo aprobado.",
+                "cantidad": 1,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("horario", response.data)
+
+    def test_approving_overlapping_loan_is_rejected(self):
+        loan_date = timezone.localdate() + timedelta(days=3)
+        pending_loan = Prestamo.objects.create(
+            equipo=self.equipment,
+            solicitante=self.student,
+            fecha=loan_date,
+            horario="15:00 - 17:00",
+            proyecto="Electrónica",
+            motivo="Solicitud pendiente con horario empalmado.",
+            cantidad=1,
+        )
+        Prestamo.objects.create(
+            equipo=self.equipment,
+            solicitante=self.student_two,
+            fecha=loan_date,
+            horario="15:00 - 17:00",
+            proyecto="Robótica",
+            motivo="Préstamo aprobado previamente para validar empalmes.",
+            cantidad=1,
+            estado="Aprobado",
+        )
+
+        self.client.force_authenticate(self.tecnico)
+        response = self.client.patch(
+            f"/api/prestamos/{pending_loan.id}/estado/",
+            {"estado": "Aprobado"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("horario", response.data)
 
 # Create your tests here.

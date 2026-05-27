@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from apps.common.constants import HORARIOS_VALIDOS, RESERVA_ESTADOS_ACTIVOS
 from apps.common.identifiers import generate_prefixed_code
+from apps.common.time_slots import time_slots_overlap
 from apps.labs.models import Laboratorio
 
 
@@ -56,18 +57,18 @@ class Reserva(models.Model):
         if self.laboratorio.estado != "Disponible" and self.estado in RESERVA_ESTADOS_ACTIVOS:
             errors["laboratorio"] = "El laboratorio seleccionado no está disponible para reservar."
 
-        conflict_exists = (
-            Reserva.objects.filter(
-                laboratorio=self.laboratorio,
-                fecha=self.fecha,
-                horario=self.horario,
-                estado__in=RESERVA_ESTADOS_ACTIVOS,
-            )
-            .exclude(pk=self.pk)
-            .exists()
+        approved_reservations = Reserva.objects.filter(
+            laboratorio=self.laboratorio,
+            fecha=self.fecha,
+            estado="Aprobada",
+        ).exclude(pk=self.pk)
+
+        conflict_exists = any(
+            time_slots_overlap(self.horario, reservation.horario)
+            for reservation in approved_reservations
         )
         if conflict_exists and self.estado in RESERVA_ESTADOS_ACTIVOS:
-            errors["horario"] = "Ya existe una reserva activa para ese laboratorio en ese horario."
+            errors["horario"] = "Este horario ya está reservado para el laboratorio seleccionado."
 
         if errors:
             raise ValidationError(errors)

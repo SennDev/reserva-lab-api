@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from apps.common.time_slots import time_slots_overlap
 from apps.labs.models import Laboratorio
 from apps.reservations.models import Reserva
 from apps.users.models import User
@@ -52,6 +53,17 @@ class ReservationSerializer(serializers.ModelSerializer):
             normalized["solicitante_ref"] = normalized["solicitanteId"]
         return super().to_internal_value(normalized)
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        laboratorio = attrs.get("laboratorio") or getattr(self.instance, "laboratorio", None)
+        fecha = attrs.get("fecha") or getattr(self.instance, "fecha", None)
+        horario = attrs.get("horario") or getattr(self.instance, "horario", None)
+
+        if laboratorio and fecha and horario:
+            self._validate_approved_overlap(laboratorio, fecha, horario, self.instance)
+
+        return attrs
+
     def get_lab(self, obj):
         return obj.laboratorio.nombre
 
@@ -67,12 +79,29 @@ class ReservationSerializer(serializers.ModelSerializer):
     def get_fecha_iso(self, obj):
         return obj.fecha.isoformat()
 
+    @staticmethod
+    def _validate_approved_overlap(laboratorio, fecha, horario, instance=None):
+        approved_reservations = Reserva.objects.filter(
+            laboratorio=laboratorio,
+            fecha=fecha,
+            estado="Aprobada",
+        )
+
+        if instance:
+            approved_reservations = approved_reservations.exclude(pk=instance.pk)
+
+        if any(time_slots_overlap(horario, reservation.horario) for reservation in approved_reservations):
+            raise serializers.ValidationError(
+                {"horario": "Este horario ya está reservado para el laboratorio seleccionado."}
+            )
+
 
 class ReservationStatusSerializer(serializers.Serializer):
     estado = serializers.ChoiceField(choices=Reserva.ESTADO_CHOICES)
 
     def validate_estado(self, value):
         reservation = self.context["reservation"]
+        request = self.context.get("request")
         transitions = {
             "Pendiente": {"Aprobada", "Rechazada"},
             "Aprobada": {"Completada", "Rechazada"},
@@ -80,12 +109,23 @@ class ReservationStatusSerializer(serializers.Serializer):
             "Completada": set(),
         }
 
+        if not request or request.user.rol not in {"admin", "tecnico"}:
+            raise serializers.ValidationError("Solo administradores y técnicos pueden cambiar estados.")
+
         if value == reservation.estado:
             return value
 
         if value not in transitions.get(reservation.estado, set()):
             raise serializers.ValidationError(
                 f"No se puede cambiar de {reservation.estado} a {value}."
+            )
+
+        if value == "Aprobada":
+            ReservationSerializer._validate_approved_overlap(
+                reservation.laboratorio,
+                reservation.fecha,
+                reservation.horario,
+                reservation,
             )
 
         return value

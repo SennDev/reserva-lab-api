@@ -122,6 +122,8 @@ class RegisterSerializer(serializers.ModelSerializer):
                     {"matricula": "La matrícula debe tener exactamente 9 dígitos."}
                 )
             attrs["rol"] = "estudiante"
+        elif tipo_usuario == "admin":
+            attrs["rol"] = "admin"
         else:
             attrs["rol"] = "tecnico"
 

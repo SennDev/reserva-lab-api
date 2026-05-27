@@ -61,7 +61,7 @@ class ReservationViewSet(APIExceptionMixin, viewsets.ModelViewSet):
         reservation = self.get_object()
         serializer = ReservationStatusSerializer(
             data=request.data,
-            context={"reservation": reservation},
+            context={"reservation": reservation, "request": request},
         )
         serializer.is_valid(raise_exception=True)
         reservation.estado = serializer.validated_data["estado"]

@@ -60,7 +60,7 @@ class LoanViewSet(APIExceptionMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["patch"], url_path="estado")
     def estado(self, request, pk=None):
         loan = self.get_object()
-        serializer = LoanStatusSerializer(data=request.data, context={"loan": loan})
+        serializer = LoanStatusSerializer(data=request.data, context={"loan": loan, "request": request})
         serializer.is_valid(raise_exception=True)
         new_state = serializer.validated_data["estado"]
 

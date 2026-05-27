@@ -25,6 +25,26 @@ class AuthApiTests(APITestCase):
         self.assertEqual(response.data["user"]["rol"], "estudiante")
         self.assertTrue(User.objects.filter(email=payload["email"]).exists())
 
+    def test_register_creates_admin_user(self):
+        payload = {
+            "nombre": "Gerson",
+            "apellidos": "Contreras",
+            "matricula": "EMP000099",
+            "email": "admin.demo@reservalab.local",
+            "carrera": "Administración FCC",
+            "tipo_usuario": "admin",
+            "password": "AdminStrong123",
+            "confirm_password": "AdminStrong123",
+        }
+
+        response = self.client.post(reverse("auth-register"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_user = User.objects.get(email=payload["email"])
+        self.assertEqual(response.data["user"]["rol"], "admin")
+        self.assertTrue(created_user.is_staff)
+        self.assertTrue(created_user.is_superuser)
+
     def test_login_returns_tokens_and_user(self):
         user = User.objects.create_user(
             email="admin@reservalab.local",

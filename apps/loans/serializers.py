@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from apps.common.time_slots import time_slots_overlap
 from apps.equipment.models import Equipo
 from apps.loans.models import Prestamo
 from apps.users.models import User
@@ -55,6 +56,17 @@ class LoanSerializer(serializers.ModelSerializer):
             normalized["solicitante_ref"] = normalized["solicitanteId"]
         return super().to_internal_value(normalized)
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        equipo = attrs.get("equipo") or getattr(self.instance, "equipo", None)
+        fecha = attrs.get("fecha") or getattr(self.instance, "fecha", None)
+        horario = attrs.get("horario") or getattr(self.instance, "horario", None)
+
+        if equipo and fecha and horario:
+            self._validate_approved_overlap(equipo, fecha, horario, self.instance)
+
+        return attrs
+
     def get_equipo(self, obj):
         return obj.equipo.nombre
 
@@ -73,12 +85,29 @@ class LoanSerializer(serializers.ModelSerializer):
     def get_fecha_iso(self, obj):
         return obj.fecha.isoformat()
 
+    @staticmethod
+    def _validate_approved_overlap(equipo, fecha, horario, instance=None):
+        approved_loans = Prestamo.objects.filter(
+            equipo=equipo,
+            fecha=fecha,
+            estado="Aprobado",
+        )
+
+        if instance:
+            approved_loans = approved_loans.exclude(pk=instance.pk)
+
+        if any(time_slots_overlap(horario, loan.horario) for loan in approved_loans):
+            raise serializers.ValidationError(
+                {"horario": "Este horario ya está reservado para el equipo seleccionado."}
+            )
+
 
 class LoanStatusSerializer(serializers.Serializer):
     estado = serializers.ChoiceField(choices=Prestamo.ESTADO_CHOICES)
 
     def validate_estado(self, value):
         loan = self.context["loan"]
+        request = self.context.get("request")
         transitions = {
             "Pendiente": {"Aprobado", "Rechazado"},
             "Aprobado": {"Devuelto", "Rechazado"},
@@ -86,12 +115,23 @@ class LoanStatusSerializer(serializers.Serializer):
             "Devuelto": set(),
         }
 
+        if not request or request.user.rol not in {"admin", "tecnico"}:
+            raise serializers.ValidationError("Solo administradores y técnicos pueden cambiar estados.")
+
         if value == loan.estado:
             return value
 
         if value not in transitions.get(loan.estado, set()):
             raise serializers.ValidationError(
                 f"No se puede cambiar de {loan.estado} a {value}."
+            )
+
+        if value == "Aprobado":
+            LoanSerializer._validate_approved_overlap(
+                loan.equipo,
+                loan.fecha,
+                loan.horario,
+                loan,
             )
 
         return value
